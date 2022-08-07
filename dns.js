@@ -1,22 +1,18 @@
 /*
  *  Author: SpringHack - springhack@live.cn
- *  Last modified: 2022-08-07 14:05:06
+ *  Last modified: 2022-08-07 16:16:01
  *  Filename: dns.js
  *  Description: Created by SpringHack using vim automatically.
  */
-const { Packet, createServer } = require('dns2');
-const { parse } = require('ip6addr');
+const {Packet, createServer} = require('dns2');
+const {parse} = require('ip6addr');
 const crypto = require('crypto');
 const http = require('http');
 
 const caList = [
-  ['issue', 'letsencrypt.org'],
-  ['issuewild', 'letsencrypt.org'],
-  ['issue', 'zerossl.com'],
-  ['issuewild', 'zerossl.com'],
-  ['issue', 'ssl.com'],
-  ['issuewild', 'ssl.com'],
-  ['issue', 'digicert.com'],
+  ['issue', 'letsencrypt.org'], ['issuewild', 'letsencrypt.org'],
+  ['issue', 'zerossl.com'], ['issuewild', 'zerossl.com'], ['issue', 'ssl.com'],
+  ['issuewild', 'ssl.com'], ['issue', 'digicert.com'],
   ['issuewild', 'digicert.com']
 ];
 
@@ -27,17 +23,22 @@ const generateIPv4 = (name) => {
   const ipParts = [];
   for (const part of parts) {
     if (part.length === 8) {
-      const a = isHex(part.substr(0, 2)) ? parseInt(part.substr(0, 2), 16) : NaN;
-      const b = isHex(part.substr(2, 2)) ? parseInt(part.substr(2, 2), 16) : NaN;
-      const c = isHex(part.substr(4, 2)) ? parseInt(part.substr(4, 2), 16) : NaN;
-      const d = isHex(part.substr(6, 2)) ? parseInt(part.substr(6, 2), 16) : NaN;
-      if (a >= 0 && a <= 255 && b >= 0 && b <= 255 && c >= 0 && c <= 255 && d >= 0 && d <= 255) {
+      const a =
+          isHex(part.substr(0, 2)) ? parseInt(part.substr(0, 2), 16) : NaN;
+      const b =
+          isHex(part.substr(2, 2)) ? parseInt(part.substr(2, 2), 16) : NaN;
+      const c =
+          isHex(part.substr(4, 2)) ? parseInt(part.substr(4, 2), 16) : NaN;
+      const d =
+          isHex(part.substr(6, 2)) ? parseInt(part.substr(6, 2), 16) : NaN;
+      if (a >= 0 && a <= 255 && b >= 0 && b <= 255 && c >= 0 && c <= 255 &&
+          d >= 0 && d <= 255) {
         return `${a}.${b}.${c}.${d}`;
       }
     } else {
       if (/^\d+$/.test(part)) {
         const ipPart = parseInt(part, 10);
-        if (ipPart >= 0 && ipPart <=255) {
+        if (ipPart >= 0 && ipPart <= 255) {
           ipParts.push(ipPart);
         }
       }
@@ -52,7 +53,12 @@ const generateIPv4 = (name) => {
 const generateIPv6 = (name) => {
   const parts = name.split('.');
   for (const part of parts) {
-    const ipParts = part.split(/-+/);
+    const ipParts = part.split(/-+/).map((dig) => {
+      if (dig === '') {
+        return '0';
+      }
+      return dig;
+    });
     let isValid = !!ipParts.length && ipParts.length <= 8;
     for (const ipPart of ipParts) {
       const num = isHex(ipPart) ? parseInt(ipPart, 16) : NaN;
@@ -61,7 +67,12 @@ const generateIPv6 = (name) => {
       }
     }
     if (isValid) {
-      return part.replace(/-/g, ':');
+      const maybeValue = part.replace(/-/g, ':');
+      const maybeParts = maybeValue.split('::');
+      if (ipParts.length === 8 ||
+          (ipParts.length < 8 && maybeParts.length === 2)) {
+        return maybeValue;
+      }
     }
   }
   return null;
@@ -104,7 +115,8 @@ for (let index = 0; index < process.argv.length; ++index) {
     process.exit(0);
   }
   if (process.argv[index].startsWith('--')) {
-    if (index + 1 < process.argv.length && !process.argv[index + 1].startsWith('--')) {
+    if (index + 1 < process.argv.length &&
+        !process.argv[index + 1].startsWith('--')) {
       options[process.argv[index].substring(2)] = process.argv[index + 1];
     } else {
       console.error(`illegal option=${process.argv[index].substring(2)}`);
@@ -113,32 +125,44 @@ for (let index = 0; index < process.argv.length; ++index) {
   }
 }
 
+const createSOARecord = (name) => {
+  return {
+    name,
+    type: Packet.TYPE.SOA,
+    class: Packet.CLASS.IN,
+    ttl: 300,
+    primary: name,
+    admin: 'springhack.live.cn',
+    serial: 2016121301,
+    refresh: 300,
+    retry: 3,
+    expiration: 10,
+    minimum: 10,
+  };
+};
+
 const server = createServer({
   udp: true,
   handle(request, send) {
     const response = Packet.createResponseFromRequest(request);
     for (const question of request.questions) {
-      const { name: originalName, type } = question;
+      const {name: originalName, type} = question;
       const name = originalName.toLowerCase();
       switch (type) {
         case Packet.TYPE.A: {
           const address = generateIPv4(name);
           if (!address) {
+            response.authorities.push(createSOARecord(name));
             break;
           }
-          const obj = {
-            name,
-            type,
-            address ,
-            ttl: 300,
-            class: Packet.CLASS.IN
-          };
+          const obj = {name, type, address, ttl: 300, class: Packet.CLASS.IN};
           response.answers.push(obj);
           break;
         }
         case Packet.TYPE.AAAA: {
           const address = generateIPv6(name);
           if (!address) {
+            response.authorities.push(createSOARecord(name));
             break;
           }
           const obj = {
@@ -146,7 +170,7 @@ const server = createServer({
             type,
             ttl: 300,
             class: Packet.CLASS.IN,
-            address : parse(address).toString({ format: 'v6', zeroElide: false })
+            address: parse(address).toString({format: 'v6', zeroElide: false})
           };
           response.answers.push(obj);
           break;
@@ -154,20 +178,17 @@ const server = createServer({
         case Packet.TYPE.TXT: {
           const records = txts.getItem(name);
           for (const data of records) {
-            const obj = {
-              name,
-              type,
-              data,
-              class: Packet.CLASS.IN,
-              ttl: 300
-            };
+            const obj = {name, type, data, class: Packet.CLASS.IN, ttl: 300};
             response.answers.push(obj);
+          }
+          if (!response.answers.length) {
+            response.authorities.push(createSOARecord(name));
           }
           break;
         }
         case Packet.TYPE.CAA: {
           for (const ca of caList) {
-            const [ tag, value ] = ca;
+            const [tag, value] = ca;
             const obj = {
               tag,
               name,
@@ -189,7 +210,7 @@ const server = createServer({
 });
 
 server.listen({
-  udp: { 
+  udp: {
     port: parseInt(options.dnsPort),
     address: options.dnsAddress,
     type: 'udp4'
@@ -197,7 +218,7 @@ server.listen({
 });
 
 const httpServer = http.createServer((request, response) => {
-  const { url, headers } = request;
+  const {url, headers} = request;
   if (!url) {
     return response.writeHead(500, 'not support').end();
   }
@@ -205,13 +226,12 @@ const httpServer = http.createServer((request, response) => {
     return response.writeHead(500, 'not auth').end();
   }
   const urlParts = url.substring(1).split('/');
-  const [ operation, key, value ] = urlParts;
+  const [operation, key, value] = urlParts;
   switch (operation) {
     case 'get': {
       if (!key) {
         response.writeHead(500, 'no key').end();
       }
-      console.log(txts.getItem(key));
       return response.end(JSON.stringify(txts.getItem(key)));
     }
     case 'set': {
