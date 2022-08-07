@@ -1,6 +1,6 @@
 /*
  *  Author: SpringHack - springhack@live.cn
- *  Last modified: 2022-08-07 13:38:05
+ *  Last modified: 2022-08-07 14:05:06
  *  Filename: dns.js
  *  Description: Created by SpringHack using vim automatically.
  */
@@ -118,7 +118,8 @@ const server = createServer({
   handle(request, send) {
     const response = Packet.createResponseFromRequest(request);
     for (const question of request.questions) {
-      const { name, type } = question;
+      const { name: originalName, type } = question;
+      const name = originalName.toLowerCase();
       switch (type) {
         case Packet.TYPE.A: {
           const address = generateIPv4(name);
