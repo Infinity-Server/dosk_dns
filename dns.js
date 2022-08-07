@@ -1,13 +1,24 @@
 /*
  *  Author: SpringHack - springhack@live.cn
- *  Last modified: 2022-08-07 12:18:31
- *  Filename: main.js
+ *  Last modified: 2022-08-07 13:38:05
+ *  Filename: dns.js
  *  Description: Created by SpringHack using vim automatically.
  */
 const { Packet, createServer } = require('dns2');
 const { parse } = require('ip6addr');
 const crypto = require('crypto');
 const http = require('http');
+
+const caList = [
+  ['issue', 'letsencrypt.org'],
+  ['issuewild', 'letsencrypt.org'],
+  ['issue', 'zerossl.com'],
+  ['issuewild', 'zerossl.com'],
+  ['issue', 'ssl.com'],
+  ['issuewild', 'ssl.com'],
+  ['issue', 'digicert.com'],
+  ['issuewild', 'digicert.com']
+];
 
 const isHex = (data) => /^[A-Fa-f0-9]{1,4}$/.test(data);
 
@@ -146,6 +157,22 @@ const server = createServer({
               name,
               type,
               data,
+              class: Packet.CLASS.IN,
+              ttl: 300
+            };
+            response.answers.push(obj);
+          }
+          break;
+        }
+        case Packet.TYPE.CAA: {
+          for (const ca of caList) {
+            const [ tag, value ] = ca;
+            const obj = {
+              tag,
+              name,
+              type,
+              value,
+              flags: 0,
               class: Packet.CLASS.IN,
               ttl: 300
             };
