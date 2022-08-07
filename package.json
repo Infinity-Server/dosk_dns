@@ -1,0 +1,16 @@
+{
+  "name": "wild",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dns.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dns2": "^2.0.5",
+    "ip6addr": "^0.2.5"
+  }
+}
