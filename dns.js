@@ -1,6 +1,6 @@
 /*
  *  Author: SpringHack - springhack@live.cn
- *  Last modified: 2022-08-07 16:16:01
+ *  Last modified: 2022-08-09 19:41:27
  *  Filename: dns.js
  *  Description: Created by SpringHack using vim automatically.
  */
@@ -203,6 +203,7 @@ const server = createServer({
           break;
         }
         default:
+          response.authorities.push(createSOARecord(name));
       }
     }
     send(response);
