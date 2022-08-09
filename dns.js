@@ -1,6 +1,6 @@
 /*
  *  Author: SpringHack - springhack@live.cn
- *  Last modified: 2022-08-09 19:41:27
+ *  Last modified: 2022-08-10 12:41:40
  *  Filename: dns.js
  *  Description: Created by SpringHack using vim automatically.
  */
@@ -8,6 +8,11 @@ const {Packet, createServer} = require('dns2');
 const {parse} = require('ip6addr');
 const crypto = require('crypto');
 const http = require('http');
+
+const MAGIC_VARIABLES = {
+  ACME_CHALLENGE: '_acme-challenge',
+  ACME_CHALLENGE_CNAME: '_acme-challenge-cname'
+};
 
 const caList = [
   ['issue', 'letsencrypt.org'], ['issuewild', 'letsencrypt.org'],
@@ -149,7 +154,42 @@ const server = createServer({
       const {name: originalName, type} = question;
       const name = originalName.toLowerCase();
       switch (type) {
+        case Packet.TYPE.CNAME: {
+          if (!name.startsWith(MAGIC_VARIABLES.ACME_CHALLENGE)) {
+            response.authorities.push(createSOARecord(name));
+            break;
+          }
+          const sub = name.split('.')[0];
+          switch (sub) {
+            case MAGIC_VARIABLES.ACME_CHALLENGE: {
+              response.answers.push({
+                name,
+                type,
+                ttl: 300,
+                class: Packet.CLASS.IN,
+                domain: name.replace(
+                    MAGIC_VARIABLES.ACME_CHALLENGE,
+                    MAGIC_VARIABLES.ACME_CHALLENGE_CNAME)
+              });
+              break;
+            }
+            default:
+              break;
+          }
+          break;
+        }
         case Packet.TYPE.A: {
+          if (name.startsWith(MAGIC_VARIABLES.ACME_CHALLENGE_CNAME)) {
+            const obj = {
+              name,
+              type,
+              address: '1.1.1.1',
+              ttl: 300,
+              class: Packet.CLASS.IN
+            };
+            response.answers.push(obj);
+            break;
+          }
           const address = generateIPv4(name);
           if (!address) {
             response.authorities.push(createSOARecord(name));
@@ -176,7 +216,12 @@ const server = createServer({
           break;
         }
         case Packet.TYPE.TXT: {
-          const records = txts.getItem(name);
+          let records = txts.getItem(name);
+          if (!records.size) {
+            records = txts.getItem(name.replace(
+                MAGIC_VARIABLES.ACME_CHALLENGE_CNAME,
+                MAGIC_VARIABLES.ACME_CHALLENGE));
+          }
           for (const data of records) {
             const obj = {name, type, data, class: Packet.CLASS.IN, ttl: 300};
             response.answers.push(obj);
@@ -218,10 +263,53 @@ server.listen({
   }
 });
 
-const httpServer = http.createServer((request, response) => {
+const resolveAcmeDNS = (request, response) => {
   const {url, headers} = request;
+  switch (url.substring(1)) {
+    case 'register': {
+      return response.writeHead(201, 'not impl').end('{}');
+    }
+    case 'update': {
+      const headerAuth = headers['x-api-user'];
+      const headerToken = headers['x-api-key'];
+      if (headerAuth !== options.auth || headerToken !== options.token) {
+        return response.writeHead(500, 'not auth').end();
+      }
+      let body = '';
+      request.on('data', chunk => body += chunk);
+      request.on('end', () => {
+        let data = {};
+        try {
+          for (const [k, v] of Object.entries(JSON.parse(body.toString()))) {
+            data[k.toLowerCase()] = v;
+          }
+        } catch (e) {
+          return response.writeHead(500, 'invalid request').end();
+        }
+        if (txts.setItem(data.subdomain, data.txt)) {
+          response.writeHead(200, {'Content-Type': 'application/json'})
+          return response.end(JSON.stringify({txt: data.txt}));
+        }
+        return response.writeHead(500, 'set failed').end();
+      });
+      return;
+    }
+    default: {
+      response.writeHead(500, 'not support').end();
+    }
+  }
+};
+
+const httpServer = http.createServer((request, response) => {
+  const {url, method, headers} = request;
   if (!url) {
     return response.writeHead(500, 'not support').end();
+  }
+  if (method.toLowerCase() == 'post') {
+    return resolveAcmeDNS(request, response);
+  }
+  if (url === '/health') {
+    return response.writeHead(200, 'fine').end();
   }
   if (headers[options.auth] !== options.token) {
     return response.writeHead(500, 'not auth').end();
